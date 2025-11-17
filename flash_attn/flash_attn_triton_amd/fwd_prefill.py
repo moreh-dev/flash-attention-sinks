@@ -277,7 +277,7 @@ autotune_configs, autotune_keys = get_autotune_configs()
     use_cuda_graph=True,
 )
 @triton.jit
-def attn_fwd(Q, K, V, bias, SM_SCALE: tl.constexpr, LSE, Out, stride_qz, stride_qh, stride_qm, stride_qk, 
+def attn_fwd(Q, K, V, bias, sinks, stride_sinks_h, SM_SCALE: tl.constexpr, LSE, Out, stride_qz, stride_qh, stride_qm, stride_qk, 
              stride_kz, stride_kh, stride_kn, stride_kk, stride_vz, stride_vh, stride_vk, stride_vn, 
              stride_oz, stride_oh, stride_om, stride_on, stride_bz, stride_bh, stride_bm, stride_bn, stride_az, stride_ah,
              stride_sz, stride_sh, stride_sm, stride_sn, stride_lse_z, stride_lse_h, stride_lse_m, cu_seqlens_q, cu_seqlens_k,
@@ -410,7 +410,10 @@ def attn_fwd(Q, K, V, bias, SM_SCALE: tl.constexpr, LSE, Out, stride_qz, stride_
     else:
         batch_philox_offset = 0
     # initialize pointer to m and l
-    m_i = tl.full([BLOCK_M], float("-inf"), dtype=tl.float32)
+    
+    sinks_ptr = sinks + off_h_q * stride_sinks_h
+    sink_val = tl.load(sinks_ptr)
+    m_i = tl.full([BLOCK_M], sink_val, dtype=tl.float32)
     l_i = tl.full([BLOCK_M], 1.0, dtype=tl.float32)
     acc = tl.zeros([BLOCK_M, BLOCK_DMODEL], dtype=tl.float32)
     # Q is loaded once at the beginning and shared by all N blocks.
@@ -541,6 +544,7 @@ def attention_prefill_forward_triton_impl(
                                         q,
                                         k,
                                         v,
+                                        sinks,
                                         o,
                                         sm_scale,
                                         alibi_slopes,
@@ -639,7 +643,9 @@ def attention_prefill_forward_triton_impl(
         alibi_strides = (0, 0)
 
 
-    attn_fwd[grid](q, k, v, bias, sm_scale, softmax_lse, o, *q_strides, *k_strides, *v_strides, *o_strides,
+    if sinks is not None:
+        stride_sinks_h = sinks.stride()[0]
+    attn_fwd[grid](q, k, v, bias, sinks, stride_sinks_h, sm_scale, softmax_lse, o, *q_strides, *k_strides, *v_strides, *o_strides,
                     *bias_strides, *alibi_strides, *scores_strides, stride_lse_z, stride_lse_h, stride_lse_m, cu_seqlens_q, cu_seqlens_k,
                     dropout_p=dropout_p, philox_seed=philox_seed, philox_offset_base=philox_offset, scores=scores, 
                     scores_scaled_shifted=scores_scaled_shifted, exp_scores=exp_scores, alibi_slopes=alibi_slopes, 
