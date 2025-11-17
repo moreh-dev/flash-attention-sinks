@@ -544,6 +544,7 @@ def attention_prefill_forward_triton_impl(
                                         q,
                                         k,
                                         v,
+                                        sinks,
                                         o,
                                         sm_scale,
                                         alibi_slopes,
