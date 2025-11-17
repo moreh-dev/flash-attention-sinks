@@ -413,7 +413,7 @@ def attn_fwd(Q, K, V, bias, sinks, stride_sinks_h, SM_SCALE: tl.constexpr, LSE, 
     
     sinks_ptr = sinks + off_h_q * stride_sinks_h
     sink_val = tl.load(sinks_ptr)
-    m_i = tl.full([BLOCK_M], sink_val, dtype=ACCUMULATOR_TYPE)
+    m_i = tl.full([BLOCK_M], sink_val, dtype=tl.float32)
     l_i = tl.full([BLOCK_M], 1.0, dtype=tl.float32)
     acc = tl.zeros([BLOCK_M, BLOCK_DMODEL], dtype=tl.float32)
     # Q is loaded once at the beginning and shared by all N blocks.
