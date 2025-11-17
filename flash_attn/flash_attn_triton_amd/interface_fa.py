@@ -1,7 +1,6 @@
 import torch
 import os
 from .fwd_prefill import attention_prefill_forward_triton_impl
-from .bwd_prefill import attention_prefill_backward_triton_impl
 from .bwd_prefill_split import attention_prefill_backward_triton_split_impl
 from .bwd_prefill_fused import _flash_attn_backward as attention_prefill_backward_triton_fused_impl
 from .bwd_prefill_onekernel import attention_prefill_backward_triton_split_oneKernel_impl
@@ -9,13 +8,14 @@ from .fwd_decode import attention_decode_forward_triton_impl
 from .fwd_ref import attention_forward_pytorch_ref_impl
 from .bwd_ref import attention_backward_pytorch_ref_impl
 from .utils import DEBUG, USE_REF, MetaData, get_shapes_from_layout, is_fp8
-from einops import rearrange, repeat
+from einops import rearrange
 from flash_attn.layers.rotary import apply_rotary_emb
-from typing import Literal, Optional, Union
+from typing import Optional, Union
 
 def fwd(q: torch.Tensor,
         k: torch.Tensor,
         v: torch.Tensor,
+        sinks: torch.Tensor,
         out: Optional[torch.Tensor],
         alibi_slopes: Optional[torch.Tensor],
         dropout_p: float,
@@ -52,9 +52,13 @@ def fwd(q: torch.Tensor,
         print("descale_v:", descale_v, descale_v.shape if descale_v is not None else None)
         print("descale_o:", descale_o, descale_o.shape if descale_o is not None else None)
 
+    assert window_size_left == -1
+    assert window_size_right == -1
+    assert isinstance(sinks, torch.Tensor)
+
     if is_fp8(q):
         assert out is not None, "fp8 output tensor should be passed in."
-        assert (descale_q is not None) and (descale_k is not None) and (descale_v is not None), f"For fp8, you need to pass descale factors for q, k and v"
+        assert (descale_q is not None) and (descale_k is not None) and (descale_v is not None), "For fp8, you need to pass descale factors for q, k and v"
     else:
         out = torch.zeros_like(q) if out is None else out.zero_()
 
@@ -111,6 +115,9 @@ def fwd(q: torch.Tensor,
                                                 q,
                                                 k,
                                                 v,
+                                                sinks,
+                                                window_size_left,
+                                                window_size_right,
                                                 out,
                                                 metadata.sm_scale,
                                                 metadata.alibi_slopes,
@@ -400,7 +407,7 @@ def varlen_fwd(
 
     if is_fp8(q):
         assert out is not None, "fp8 output tensor should be passed in."
-        assert (descale_q is not None) and (descale_k is not None) and (descale_v is not None), f"For fp8, you need to pass descale factors for q, k and v"
+        assert (descale_q is not None) and (descale_k is not None) and (descale_v is not None), "For fp8, you need to pass descale factors for q, k and v"
     else:
         out = torch.zeros_like(q) if out is None else out.zero_()
 

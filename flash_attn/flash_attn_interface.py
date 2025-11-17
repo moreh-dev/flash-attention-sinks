@@ -1,19 +1,14 @@
 # Copyright (c) 2023, Tri Dao.
 
-from typing import Optional, Sequence, Tuple, Union
+from typing import Optional, Tuple, Union
 
 import torch
-import torch.nn as nn
 import os
+import warnings
 
 # isort: off
-# We need to import the CUDA kernels after importing torch
-USE_TRITON_ROCM = os.getenv("FLASH_ATTENTION_TRITON_AMD_ENABLE", "FALSE") == "TRUE"
-if USE_TRITON_ROCM:
-    from .flash_attn_triton_amd import interface_fa as flash_attn_gpu
-else:
-    import flash_attn_2_cuda as flash_attn_gpu
-
+warnings.warn("Forcefully enabling rocm triton flash attention.", UserWarning)
+from .flash_attn_triton_amd import interface_fa as flash_attn_gpu
 # isort: on
 
 def maybe_contiguous(x):
@@ -53,7 +48,7 @@ def round_multiple(x, m):
 # torch.compile() support is only enabled for pytorch >= 2.4
 # The reason for this is that we are using the new custom_op and register_fake
 # APIs, which support inplace modification of inputs in the function itself
-if torch.__version__ >= "2.4.0":
+if False:
     _torch_custom_op_wrapper = torch.library.custom_op
     _torch_register_fake_wrapper = torch.library.register_fake
 else:
@@ -78,6 +73,7 @@ def _flash_attn_forward(
     q: torch.Tensor,
     k: torch.Tensor,
     v: torch.Tensor,
+    sinks: torch.Tensor,
     dropout_p: float,
     softmax_scale: float,
     causal: bool,
@@ -92,6 +88,7 @@ def _flash_attn_forward(
         q,
         k,
         v,
+        sinks,
         None,
         alibi_slopes,
         dropout_p,
@@ -136,7 +133,7 @@ def _flash_attn_forward_fake(
     return out, softmax_lse, p, rng_state
 
 
-if torch.__version__ >= "2.4.0":
+if False:
     _wrapped_flash_attn_forward = torch.ops.flash_attn._flash_attn_forward
 else:
     _wrapped_flash_attn_forward = _flash_attn_forward
@@ -232,7 +229,7 @@ def _flash_attn_varlen_forward_fake(
     return out, softmax_lse, p, rng_state
 
 
-if torch.__version__ >= "2.4.0":
+if False:
     _wrapped_flash_attn_varlen_forward = torch.ops.flash_attn._flash_attn_varlen_forward
 else:
     _wrapped_flash_attn_varlen_forward = _flash_attn_varlen_forward
@@ -327,7 +324,7 @@ def _flash_attn_backward_fake(
     return softmax_d
 
 
-if torch.__version__ >= "2.4.0":
+if False:
     _wrapped_flash_attn_backward = torch.ops.flash_attn._flash_attn_backward
 else:
     _wrapped_flash_attn_backward = _flash_attn_backward
@@ -441,7 +438,7 @@ def _flash_attn_varlen_backward_fake(
     return softmax_d
 
 
-if torch.__version__ >= "2.4.0":
+if False:
     _wrapped_flash_attn_varlen_backward = torch.ops.flash_attn._flash_attn_varlen_backward
 else:
     _wrapped_flash_attn_varlen_backward = _flash_attn_varlen_backward
@@ -821,6 +818,7 @@ class FlashAttnFunc(torch.autograd.Function):
         q,
         k,
         v,
+        sinks,
         dropout_p,
         softmax_scale,
         causal,
@@ -845,6 +843,7 @@ class FlashAttnFunc(torch.autograd.Function):
             q,
             k,
             v,
+            sinks,
             dropout_p,
             softmax_scale,
             causal=causal,
@@ -1146,6 +1145,7 @@ def flash_attn_func(
     q,
     k,
     v,
+    sinks,
     dropout_p=0.0,
     softmax_scale=None,
     causal=False,
@@ -1207,6 +1207,7 @@ def flash_attn_func(
         q,
         k,
         v,
+        sinks,
         dropout_p,
         softmax_scale,
         causal,
